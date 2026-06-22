@@ -11,9 +11,8 @@ public:
     }
 
     std::optional<TrafficRequest> next() override {
-        if (expired(current_)) {
+        if (expired(current_))
             return std::nullopt;
-        }
 
         TrafficRequest request{
             .time = current_,
