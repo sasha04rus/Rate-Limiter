@@ -1,216 +1,165 @@
 #include <gtest/gtest.h>
 
-#include "../include/rate_limiter/TokenBucket.hpp"
-#include "../include/rate_limiter/RateLimiterManager.hpp"
-
-#include <atomic>
 #include <chrono>
 #include <thread>
 #include <vector>
+#include <atomic>
 
-using namespace std::chrono_literals;
+#include "../include/rate_limiter/TokenBucket.hpp"
 
-using RateLimiter = RateLimiterManager<TokenBucket>;
+using Clock = TokenBucket::Clock;
 
-TEST(RateLimiterTest, RateAccuracy) {
-    RateLimiter limiter(40s, 2, 60s, "token_bucket");
+TEST(TokenBucketTest, RateAccuracy) {
+    TokenBucket bucket(std::chrono::seconds(40), 2);
 
-    auto t = RateLimiter::Clock::now();
+    auto now = Clock::now();
 
-    EXPECT_TRUE(limiter.allow("user1", t))
-        << "Первый запрос должен пройти";
+    EXPECT_TRUE(bucket.allow(now));
+    EXPECT_TRUE(bucket.allow(now));
+    EXPECT_FALSE(bucket.allow(now));
 
-    EXPECT_TRUE(limiter.allow("user1", t))
-        << "Второй запрос должен пройти";
+    now += std::chrono::seconds(20);
 
-    EXPECT_FALSE(limiter.allow("user1", t))
-        << "Лимит исчерпан";
-
-    EXPECT_TRUE(limiter.allow("user1", t + 20s))
+    EXPECT_TRUE(bucket.allow(now))
         << "Один токен должен быть восстановлен";
 
-    EXPECT_FALSE(limiter.allow("user1", t + 20s))
-        << "Второго токена сразу нет, только через 20 секунд";
+    EXPECT_FALSE(bucket.allow(now))
+        << "Второго токена сразу нет";
 }
 
-TEST(RateLimiterTest, BurstCapacity) {
-    RateLimiter limiter(40s, 2, 60s, "token_bucket");
+TEST(TokenBucketTest, BurstCapacity) {
+    TokenBucket bucket(std::chrono::seconds(40), 2);
 
-    auto t = RateLimiter::Clock::now();
+    auto now = Clock::now();
 
     std::vector<bool> results;
 
-    for (int i = 0; i < 10; ++i) {
-        results.push_back(limiter.allow("burstUser", t));
+    for (int i = 0; i < 10; i++) {
+        results.push_back(bucket.allow(now));
     }
 
     EXPECT_TRUE(results[0]);
     EXPECT_TRUE(results[1]);
 
-    for (std::size_t i = 2; i < results.size(); ++i) {
-        EXPECT_FALSE(results[i])
-            << "Ожидаем: results = [true, true, false, false, false, false, false, false, false, false]";
+    for (size_t i = 2; i < results.size(); i++) {
+        EXPECT_FALSE(results[i]);
     }
 }
 
-TEST(RateLimiterTest, ThreadSafety) {
-    RateLimiter limiter(40s, 2, 60s, "token_bucket");
+TEST(TokenBucketTest, TokenRefillIsPartial) {
+    TokenBucket bucket(std::chrono::seconds(40), 2);
+
+    auto now = Clock::now();
+
+    EXPECT_TRUE(bucket.allow(now));
+    EXPECT_TRUE(bucket.allow(now));
+    EXPECT_FALSE(bucket.allow(now));
+
+    now += std::chrono::seconds(10);
+
+    EXPECT_FALSE(bucket.allow(now))
+        << "За 10 секунд восстановится только 0.5 токена";
+}
+
+TEST(TokenBucketTest, TokenRefillAfterEnoughTime) {
+    TokenBucket bucket(std::chrono::seconds(40), 2);
+
+    auto now = Clock::now();
+
+    EXPECT_TRUE(bucket.allow(now));
+    EXPECT_TRUE(bucket.allow(now));
+    EXPECT_FALSE(bucket.allow(now));
+
+    now += std::chrono::seconds(21);
+
+    EXPECT_TRUE(bucket.allow(now));
+}
+
+TEST(TokenBucketTest, CapacityDoesNotGrowAboveLimit) {
+    TokenBucket bucket(std::chrono::seconds(40), 2);
+
+    auto now = Clock::now();
+
+    now += std::chrono::seconds(100);
+
+    EXPECT_TRUE(bucket.allow(now));
+    EXPECT_TRUE(bucket.allow(now));
+    EXPECT_FALSE(bucket.allow(now))
+        << "Токенов не должно стать больше capacity";
+}
+
+TEST(TokenBucketTest, CustomCapacityWorks) {
+    TokenBucket bucket(std::chrono::seconds(100), 5);
+
+    auto now = Clock::now();
+
+    EXPECT_TRUE(bucket.allow(now));
+    EXPECT_TRUE(bucket.allow(now));
+    EXPECT_TRUE(bucket.allow(now));
+    EXPECT_TRUE(bucket.allow(now));
+    EXPECT_TRUE(bucket.allow(now));
+
+    EXPECT_FALSE(bucket.allow(now))
+        << "При max_requests = 5 шестой запрос должен быть отклонён";
+}
+
+TEST(TokenBucketTest, FastRefillWorks) {
+    TokenBucket bucket(std::chrono::seconds(1), 1);
+
+    auto now = Clock::now();
+
+    EXPECT_TRUE(bucket.allow(now));
+    EXPECT_FALSE(bucket.allow(now));
+
+    now += std::chrono::seconds(1);
+
+    EXPECT_TRUE(bucket.allow(now));
+}
+
+TEST(TokenBucketTest, ThreadSafety) {
+    TokenBucket bucket(std::chrono::seconds(40), 2);
 
     constexpr int THREADS = 20;
-
     std::atomic<int> allowed{0};
-    auto t = RateLimiter::Clock::now();
 
     auto worker = [&]() {
-        if (limiter.allow("the_same_user", t)) {
-            ++allowed;
+        if (bucket.allow()) {
+            allowed++;
         }
     };
 
     std::vector<std::thread> threads;
 
-    for (int i = 0; i < THREADS; ++i) {
+    for (int i = 0; i < THREADS; i++) {
         threads.emplace_back(worker);
     }
 
-    for (auto& thread : threads) {
-        thread.join();
+    for (auto& t : threads) {
+        t.join();
     }
 
     EXPECT_LE(allowed.load(), 2);
 }
 
-TEST(RateLimiterTest, CleanOldBucket) {
-    RateLimiter limiter(40s, 2, 3s, "token_bucket");
+TEST(TokenBucketTest, AllowWithoutTimePointWorks) {
+    TokenBucket bucket(std::chrono::seconds(40), 2);
 
-    auto t = RateLimiter::Clock::now();
-
-    EXPECT_TRUE(limiter.allow("old_user", t));
-    EXPECT_TRUE(limiter.allow("new_user", t + 2s));
-
-    EXPECT_EQ(limiter.activeKeys(), 2);
-
-    std::size_t removed = limiter.cleanup(t + 4s);
-
-    EXPECT_EQ(removed, 1);
-    EXPECT_EQ(limiter.activeKeys(), 1);
-
-    EXPECT_TRUE(limiter.allow("new_user", t + 4s));
-    EXPECT_EQ(limiter.activeKeys(), 1);
+    EXPECT_TRUE(bucket.allow());
+    EXPECT_TRUE(bucket.allow());
+    EXPECT_FALSE(bucket.allow());
 }
 
-TEST(RateLimiterTest, DifferentUsersHaveDifferentBuckets) {
-    RateLimiter limiter(40s, 2, 60s, "token_bucket");
+TEST(TokenBucketTest, TimeCannotGoBackwards) {
+    TokenBucket bucket(std::chrono::seconds(40), 2);
 
-    auto t = RateLimiter::Clock::now();
+    auto now = Clock::now();
 
-    EXPECT_TRUE(limiter.allow("user1", t));
-    EXPECT_TRUE(limiter.allow("user1", t));
-    EXPECT_FALSE(limiter.allow("user1", t));
+    EXPECT_TRUE(bucket.allow(now));
+    EXPECT_TRUE(bucket.allow(now));
+    EXPECT_FALSE(bucket.allow(now));
 
-    EXPECT_TRUE(limiter.allow("user2", t))
-        << "У другого пользователя должен быть свой отдельный bucket";
+    now -= std::chrono::seconds(100);
 
-    EXPECT_TRUE(limiter.allow("user2", t));
-    EXPECT_FALSE(limiter.allow("user2", t));
-}
-
-TEST(RateLimiterTest, TokenRefillIsPartial) {
-    RateLimiter limiter(40s, 2, 60s, "token_bucket");
-
-    auto t = RateLimiter::Clock::now();
-
-    EXPECT_TRUE(limiter.allow("user1", t));
-    EXPECT_TRUE(limiter.allow("user1", t));
-    EXPECT_FALSE(limiter.allow("user1", t));
-
-    EXPECT_FALSE(limiter.allow("user1", t + 10s))
-        << "За 10 секунд восстановится только 0.5 токена, этого недостаточно";
-}
-
-TEST(RateLimiterTest, TokenRefillAfterEnoughTime) {
-    RateLimiter limiter(40s, 2, 60s, "token_bucket");
-
-    auto t = RateLimiter::Clock::now();
-
-    EXPECT_TRUE(limiter.allow("user1", t));
-    EXPECT_TRUE(limiter.allow("user1", t));
-    EXPECT_FALSE(limiter.allow("user1", t));
-
-    EXPECT_TRUE(limiter.allow("user1", t + 21s))
-        << "Через 20+ секунд должен восстановиться один токен";
-}
-
-TEST(RateLimiterTest, CapacityDoesNotGrowAboveLimit) {
-    RateLimiter limiter(40s, 2, 60s, "token_bucket");
-
-    auto t = RateLimiter::Clock::now();
-
-    EXPECT_TRUE(limiter.allow("user1", t));
-    EXPECT_TRUE(limiter.allow("user1", t));
-    EXPECT_FALSE(limiter.allow("user1", t));
-
-    EXPECT_TRUE(limiter.allow("user1", t + 100s));
-    EXPECT_TRUE(limiter.allow("user1", t + 100s));
-
-    EXPECT_FALSE(limiter.allow("user1", t + 100s))
-        << "Даже после долгого ожидания токенов не должно быть больше capacity";
-}
-
-TEST(RateLimiterTest, BucketCreatedAfterFirstRequest) {
-    RateLimiter limiter(40s, 2, 60s, "token_bucket");
-
-    auto t = RateLimiter::Clock::now();
-
-    EXPECT_EQ(limiter.activeKeys(), 0);
-
-    EXPECT_TRUE(limiter.allow("new_user", t));
-
-    EXPECT_EQ(limiter.activeKeys(), 1)
-        << "Bucket должен создаться после первого запроса пользователя";
-}
-
-TEST(RateLimiterTest, BucketRecreatedAfterClean) {
-    RateLimiter limiter(40s, 2, 2s, "token_bucket");
-
-    auto t = RateLimiter::Clock::now();
-
-    EXPECT_TRUE(limiter.allow("temp_user", t));
-    EXPECT_EQ(limiter.activeKeys(), 1);
-
-    EXPECT_EQ(limiter.cleanup(t + 3s), 1);
-    EXPECT_EQ(limiter.activeKeys(), 0)
-        << "Старый bucket должен быть удалён";
-
-    EXPECT_TRUE(limiter.allow("temp_user", t + 4s));
-    EXPECT_EQ(limiter.activeKeys(), 1)
-        << "После нового запроса bucket должен создаться заново";
-}
-
-TEST(RateLimiterTest, CustomCapacityWorks) {
-    // capacity = max_requests = 5
-    RateLimiter limiter(100s, 5, 60s, "token_bucket");
-
-    auto t = RateLimiter::Clock::now();
-
-    EXPECT_TRUE(limiter.allow("user1", t));
-    EXPECT_TRUE(limiter.allow("user1", t));
-    EXPECT_TRUE(limiter.allow("user1", t));
-    EXPECT_TRUE(limiter.allow("user1", t));
-    EXPECT_TRUE(limiter.allow("user1", t));
-
-    EXPECT_FALSE(limiter.allow("user1", t))
-        << "При capacity = 5 шестой запрос должен быть отклонён";
-}
-
-TEST(RateLimiterTest, FastRefillWorks) {
-    RateLimiter limiter(1s, 1, 60s, "token_bucket");
-
-    auto t = RateLimiter::Clock::now();
-
-    EXPECT_TRUE(limiter.allow("user1", t));
-    EXPECT_FALSE(limiter.allow("user1", t));
-
-    EXPECT_TRUE(limiter.allow("user1", t + 1s))
-        << "При refillRate = 1 токен в секунду токен должен восстановиться через 1 секунду";
+    EXPECT_FALSE(bucket.allow(now))
+        << "Если время ушло назад, токены не должны восстановиться";
 }
