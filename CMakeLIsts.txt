@@ -1,0 +1,119 @@
+cmake_minimum_required(VERSION 3.16)
+project(RateLimiterResearch
+    VERSION 1.0
+    DESCRIPTION "Исследование алгоритмов ограничения частоты запросов"
+    LANGUAGES CXX
+)
+
+# -------------------- Настройки C++ --------------------
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# -------------------- Опции сборки --------------------
+option(BUILD_TESTS     "Собрать юнит-тесты"              ON)
+option(BUILD_BENCHMARKS "Собрать микробенчмарки"         ON)
+option(BUILD_LOAD_TESTER "Собрать нагрузочный тестер"    OFF)  # пока отключим
+option(ENABLE_TSAN      "Включить ThreadSanitizer"       OFF)
+
+# -------------------- Подключение зависимостей --------------------
+include(FetchContent)
+
+# Google Test
+if(BUILD_TESTS)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG        v1.14.0
+    )
+    FetchContent_MakeAvailable(googletest)
+    enable_testing()
+endif()
+
+# Google Benchmark
+if(BUILD_BENCHMARKS)
+    FetchContent_Declare(
+        benchmark
+        GIT_REPOSITORY https://github.com/google/benchmark.git
+        GIT_TAG        v1.8.3
+    )
+    FetchContent_MakeAvailable(benchmark)
+endif()
+
+# -------------------- Основная библиотека --------------------
+# Собираем всю логику rate limiting (алгоритмы + общая инфраструктура)
+# Включаем заголовки и, если есть .cpp, компилируем их.
+add_library(rate_limiter_lib INTERFACE)
+target_include_directories(rate_limiter_lib INTERFACE include)
+
+# Если у вас есть реализации .cpp (src/TokenBucket.cpp, LeakingBucket.cpp и т.д.),
+# то можно сделать статическую библиотеку. Предположим, что есть общий src/ с алгоритмами.
+file(GLOB RATE_LIMITER_SOURCES "src/*.cpp")
+if(RATE_LIMITER_SOURCES)
+    message(STATUS "Found rate limiter sources: ${RATE_LIMITER_SOURCES}")
+    add_library(rate_limiter_obj STATIC ${RATE_LIMITER_SOURCES})
+    target_include_directories(rate_limiter_obj PUBLIC include)
+    target_link_libraries(rate_limiter_obj PUBLIC rate_limiter_lib)
+    set(RATE_LIMITER_TARGET rate_limiter_obj)
+else()
+    set(RATE_LIMITER_TARGET rate_limiter_lib)
+endif()
+
+# -------------------- Паттерны нагрузок --------------------
+# Они могут быть header-only, но если есть .cpp, добавим их в отдельную библиотеку.
+file(GLOB LOAD_TESTER_SOURCES "load_tester/*.cpp")
+if(LOAD_TESTER_SOURCES)
+    add_library(load_patterns STATIC ${LOAD_TESTER_SOURCES})
+    target_include_directories(load_patterns PUBLIC include load_tester)
+    target_link_libraries(load_patterns PUBLIC ${RATE_LIMITER_TARGET})
+    set(LOAD_PATTERNS_TARGET load_patterns)
+else()
+    set(LOAD_PATTERNS_TARGET "")
+endif()
+
+# -------------------- Тесты --------------------
+if(BUILD_TESTS)
+    file(GLOB TEST_SOURCES "tests/*.cpp")
+    add_executable(unit_tests ${TEST_SOURCES})
+    target_link_libraries(unit_tests PRIVATE
+        ${RATE_LIMITER_TARGET}
+        GTest::gtest_main
+    )
+    if(LOAD_PATTERNS_TARGET)
+        target_link_libraries(unit_tests PRIVATE ${LOAD_PATTERNS_TARGET})
+    endif()
+    target_include_directories(unit_tests PRIVATE include)
+
+    # Опционально: включить санитайзеры для тестов
+    if(ENABLE_TSAN)
+        target_compile_options(unit_tests PRIVATE -fsanitize=thread -fno-omit-frame-pointer)
+        target_link_options(unit_tests PRIVATE -fsanitize=thread)
+    endif()
+
+    include(GoogleTest)
+    gtest_discover_tests(unit_tests)
+endif()
+
+# -------------------- Бенчмарки --------------------
+if(BUILD_BENCHMARKS)
+    file(GLOB BENCHMARK_SOURCES "benchmarks/*.cpp")
+    add_executable(micro_benchmarks ${BENCHMARK_SOURCES})
+    target_link_libraries(micro_benchmarks PRIVATE
+        ${RATE_LIMITER_TARGET}
+        benchmark::benchmark
+    )
+    if(LOAD_PATTERNS_TARGET)
+        target_link_libraries(micro_benchmarks PRIVATE ${LOAD_PATTERNS_TARGET})
+    endif()
+    target_include_directories(micro_benchmarks PRIVATE include)
+endif()
+
+# -------------------- Основная программа (если нужна) --------------------
+if(EXISTS "${CMAKE_SOURCE_DIR}/src/main.cpp")
+    add_executable(rate_limiter_app src/main.cpp)
+    target_link_libraries(rate_limiter_app PRIVATE ${RATE_LIMITER_TARGET})
+    if(LOAD_PATTERNS_TARGET)
+        target_link_libraries(rate_limiter_app PRIVATE ${LOAD_PATTERNS_TARGET})
+    endif()
+    target_include_directories(rate_limiter_app PRIVATE include)
+endif()
