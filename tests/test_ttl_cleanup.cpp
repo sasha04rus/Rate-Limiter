@@ -102,3 +102,59 @@ TEST(TtlCleanupTest, RemovedKeyStartsFreshWhenUsedAgain) {
     EXPECT_TRUE(limiter.allow("user1", t + 101ms));
     EXPECT_EQ(limiter.activeKeys(), 1);
 }
+
+TEST(TtlCleanupTest, NameDefaultAndCustom) {
+    RateLimiterManager<SlidingWindowLog> limiter1(100ms, 2, 0s);
+    EXPECT_EQ(limiter1.name(), "rate_limiter_manager");
+
+    RateLimiterManager<SlidingWindowLog> limiter2(100ms, 2, 0s, "my_limiter");
+    EXPECT_EQ(limiter2.name(), "my_limiter");
+}
+
+TEST(TtlCleanupTest, EvictionCountAfterCleanup) {
+    RateLimiterManager<SlidingWindowLog> limiter(100ms, 2, 50ms);
+    auto t = IRateLimiter::Clock::now();
+
+    ASSERT_TRUE(limiter.allow("a", t));
+    ASSERT_TRUE(limiter.allow("b", t));
+
+    size_t removed = limiter.cleanup(t + 60ms);
+    EXPECT_EQ(removed, 2);
+    EXPECT_EQ(limiter.evictionCount(), 2);
+
+    ASSERT_TRUE(limiter.allow("c", t + 100ms));
+    removed = limiter.cleanup(t + 200ms);
+    EXPECT_EQ(removed, 1);
+    EXPECT_EQ(limiter.evictionCount(), 3);
+}
+
+TEST(TtlCleanupTest, CleanupNoArgs) {
+    RateLimiterManager<SlidingWindowLog> limiter(100ms, 2, 50ms);
+    limiter.allow("user", IRateLimiter::Clock::now());
+    EXPECT_NO_THROW(limiter.cleanup());
+}
+
+TEST(TtlCleanupTest, CleanupEmptyState) {
+    RateLimiterManager<SlidingWindowLog> limiter(100ms, 2, 50ms);
+    auto t = IRateLimiter::Clock::now();
+
+    size_t removed = limiter.cleanup(t);
+    EXPECT_EQ(removed, 0);
+    EXPECT_EQ(limiter.activeKeys(), 0);
+}
+
+TEST(TtlCleanupTest, ExistingKeySuccessUpdatesLastAccess) {
+    RateLimiterManager<SlidingWindowLog> limiter(100ms, 3, 50ms);
+    auto t = IRateLimiter::Clock::now();
+
+    ASSERT_TRUE(limiter.allow("user", t));
+    EXPECT_TRUE(limiter.allow("user", t + 10ms));
+    
+    size_t removed = limiter.cleanup(t + 55ms);
+    EXPECT_EQ(removed, 0);
+    EXPECT_EQ(limiter.activeKeys(), 1);
+
+    removed = limiter.cleanup(t + 75ms);
+    EXPECT_EQ(removed, 1);
+    EXPECT_EQ(limiter.activeKeys(), 0);
+}
