@@ -68,11 +68,11 @@ int main() {
     std::vector<std::function<std::unique_ptr<IRateLimiter>()>> limiterFactories;
 
     limiterFactories.push_back([]() {
-        return std::make_unique<RateLimiter>(
-            60s,    
-            10s,    
-            100.0,  
-            100.0   
+        return std::make_unique<RateLimiterManager<TokenBucket>>(
+            40s,            
+            2,              
+            60s,            
+            "token_bucket"  
         );
     });
 
