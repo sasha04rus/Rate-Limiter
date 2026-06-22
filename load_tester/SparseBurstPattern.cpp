@@ -29,11 +29,15 @@ public:
 
         if (remainingInBurst_ > 0) {
             remainingInBurst_--;
-
-            return TrafficRequest{
+            TrafficRequest request{
                 .time = burstTime_,
                 .key = key(requestIndex_++)
             };
+
+            if (remainingInBurst_ == 0)
+                current_ = burstTime_ + sparseInterval_;
+
+            return request;
         }
 
         TrafficRequest request{

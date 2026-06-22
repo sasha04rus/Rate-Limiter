@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <string>

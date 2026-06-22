@@ -3,14 +3,16 @@
 
 #include "../include/rate_limiter/IRateLimiter.hpp"
 #include "../include/rate_limiter/TokenBucket.hpp"
-#include "../include/rate_limiter/SlidingWindowLogManager.hpp"
+#include "../include/rate_limiter/RateLimiterManager.hpp"
 #include "../include/rate_limiter/LeakingBucket.hpp"
+#include "../include/rate_limiter/SlidingWindowLog.hpp"
 
 #include <chrono>
+#include <functional>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <vector>
-#include <functional>
 
 using namespace std::chrono_literals;
 
@@ -63,30 +65,55 @@ int main() {
         return makeZombiePattern(config);
     });
 
-    for (auto& makePattern : patternFactories) {
-        auto pattern = makePattern();
+    std::vector<std::function<std::unique_ptr<IRateLimiter>()>> limiterFactories;
 
-        RateLimiter limiter(
-            60s,        
-            10s,        
-            100.0,      
-            100.0       
+    limiterFactories.push_back([]() {
+        return std::make_unique<RateLimiter>(
+            60s,    
+            10s,    
+            100.0,  
+            100.0   
         );
+    });
 
-        auto result = tester.run(limiter, *pattern);
+    limiterFactories.push_back([]() {
+        return std::make_unique<RateLimiterManager<SlidingWindowLog>>(
+            1s,                         
+            100,                        
+            60s,                        
+            "sliding_window_log"        
+        );
+    });
 
-        std::cout
-            << limiter.name() << ','
-            << result.pattern_name << ','
-            << result.total_requests << ','
-            << result.allowed_requests << ','
-            << result.denied_requests << ','
-            << result.throughput_rps << ','
-            << result.p50_latency_ns << ','
-            << result.p99_latency_ns << ','
-            << limiter.activeKeys() << ','
-            << limiter.evictionCount()
-            << '\n';
+    limiterFactories.push_back([]() {
+        return std::make_unique<RateLimiterManager<LeakingBucket>>(
+            1s,                         
+            100,                        
+            60s,                        
+            "leaking_bucket"            
+        );
+    });
+
+    for (auto& makeLimiter : limiterFactories) {
+        for (auto& makePattern : patternFactories) {
+            auto limiter = makeLimiter();
+            auto pattern = makePattern();
+
+            auto result = tester.run(*limiter, *pattern);
+
+            std::cout
+                << limiter->name() << ','
+                << result.pattern_name << ','
+                << result.total_requests << ','
+                << result.allowed_requests << ','
+                << result.denied_requests << ','
+                << result.throughput_rps << ','
+                << result.p50_latency_ns << ','
+                << result.p99_latency_ns << ','
+                << limiter->activeKeys() << ','
+                << limiter->evictionCount()
+                << '\n';
+        }
     }
 
     return 0;

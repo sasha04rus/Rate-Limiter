@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "SlidingWindowLog.hpp"
-#include "SlidingWindowLogManager.hpp"
+#include "RateLimiterManager.hpp"
 
 #include <thread>
 #include <atomic>
@@ -134,13 +134,13 @@ TEST(SlidingWindowLogTest, ThreadSafety) {
 
 
 
-using ClockManager = SlidingWindowLogManager::Clock;
+using ClockManager = RateLimiterManager<SlidingWindowLog>::Clock;
 
 class SlidingWindowLogManagerTest : public ::testing::Test {
 protected:
     static constexpr auto window = 100ms;
     static constexpr size_t limit = 3;
-    SlidingWindowLogManager manager{window, limit};
+    RateLimiterManager<SlidingWindowLog> manager{window, limit};
 };
 
 TEST_F(SlidingWindowLogManagerTest, DifferentKeysHaveIndependentLimits) {

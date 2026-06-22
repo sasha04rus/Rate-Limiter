@@ -15,6 +15,9 @@ struct LoadTestResult {
     std::uint64_t total_requests = 0;
     std::uint64_t allowed_requests = 0;
     std::uint64_t denied_requests = 0;
+    double allowed_ratio = 0.0;
+    std::size_t active_keys = 0;
+    std::size_t eviction_count = 0;
     double throughput_rps = 0.0;
     double p50_latency_ns = 0.0;
     double p99_latency_ns = 0.0;
@@ -37,6 +40,9 @@ public:
         while (auto request = pattern.next()) {
             auto before = MeasureClock::now();
             bool allowed = limiter.allow(request->key, request->time);
+            if (result.total_requests % 1000 == 0)
+                limiter.cleanup(request->time);
+
             auto after = MeasureClock::now();
             auto latency = std::chrono::duration_cast<std::chrono::nanoseconds>(after - before).count();
 
@@ -61,6 +67,14 @@ public:
             result.p99_latency_ns = percentile(latencies, 0.99);
         }
 
+        if (result.total_requests > 0) {
+            result.allowed_ratio =
+                static_cast<double>(result.allowed_requests) /
+                static_cast<double>(result.total_requests);
+        }
+
+        result.active_keys = limiter.activeKeys();
+        result.eviction_count = limiter.evictionCount();
         return result;
     }
 
