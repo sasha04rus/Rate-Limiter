@@ -59,7 +59,10 @@ public:
 
 private:
     bool allowImpl(TimePoint now) {
-        if (now < last_seen_time_) now = last_seen_time_;
+        if (now < last_seen_time_) {
+            return false;
+        }
+        
         last_seen_time_ = now;
 
         const auto cutoff = now - window_duration_;
