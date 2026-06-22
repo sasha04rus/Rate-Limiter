@@ -1,41 +1,42 @@
 #pragma once
-#include <string>
+
 #include <chrono>
+#include <cstddef>
 #include <mutex>
-#include <unordered_map>
-#include <memory>
-#include <thread>
-#include <atomic>
+#include <algorithm>
 
-struct Bucket {
-    double tokens; double capacity; double refillRate;
-    std::mutex mutex;
-    std::chrono::steady_clock::time_point lastRefill;
-    std::chrono::steady_clock::time_point lastAccess;
-    Bucket(double cap, double refill);
-};
-
-class RateLimiter {
-
+class TokenBucket {
 public:
-    RateLimiter(std::chrono::seconds ttl = std::chrono::seconds(60), 
-                std::chrono::seconds cleanInterval = std::chrono::seconds(10),
-                double bucket_capacity = 2.0,
-                double bucket_refill = 1.0 / 20.0);   
-    ~RateLimiter();
+    using Clock = std::chrono::steady_clock;
+    using TimePoint = Clock::time_point;
+    using Duration = Clock::duration;
 
-    bool allow (const std::string& userID);
-    bool bucketExists(const std::string& userId) const;
-    
+    TokenBucket(Duration window, std::size_t max_requests);
+
+    bool allow(TimePoint now);
+
+    bool allow();
+
+    std::size_t getMaxRequests() const;
+    Duration getDuration() const;
+
+    void setMaxRequests(std::size_t new_max_requests);
+    void setDuration(Duration new_window);
+
+    double availableTokens() const;
+
 private:
-    void refill(Bucket& bucket);
-    void cleanLoop();
-    void cleaner(); 
-    
-    std::chrono::seconds ttl_; std::chrono::seconds cleanInterval_; std::atomic<bool> run_{true}; std::thread cleanThread_;
-    double bucket_capacity_; double bucket_refill_;
-    mutable std::mutex mapMutex;
-    std::unordered_map<std::string, std::unique_ptr<Bucket>> buckets_;
- 
-};
+    void refill(TimePoint now);
 
+    mutable std::mutex mutex_;
+
+    double tokens_;
+    double capacity_;
+    double refill_rate_;
+
+    Duration window_;
+    std::size_t max_requests_;
+
+    TimePoint last_refill_;
+    TimePoint last_seen_time_{};
+};
