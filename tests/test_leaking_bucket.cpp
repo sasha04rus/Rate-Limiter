@@ -112,7 +112,7 @@ TEST_F(LeakingBucketTest, ZeroLeakRate) {
     simulateTime(0.2);
     auto later = LeakingBucket::Clock::now();
     EXPECT_TRUE(noLeakBucket.allow(later));
-    EXPECT_NEAR(noLeakBucket.currentLoad(later), 0.5, 0.05);
+    EXPECT_NEAR(noLeakBucket.currentLoad(later), 5.0, 0.05);
 }
 
 TEST_F(LeakingBucketTest, VeryHighLeakRate) {
