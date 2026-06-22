@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 
-#include "IRateLimiter.hpp"
-#include "RateLimiterManager.hpp"
-#include "SlidingWindowLog.hpp"
+#include "../include/rate_limiter/IRateLimiter.hpp"
+#include "../include/rate_limiter/RateLimiterManager.hpp"
+#include "../include/rate_limiter/SlidingWindowLog.hpp"
 
 #include <chrono>
 

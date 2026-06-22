@@ -1,7 +1,7 @@
 #pragma once
 
 #include "TrafficPattern.hpp"
-#include "IRateLimiter.hpp"
+#include "../include/rate_limiter/IRateLimiter.hpp"
 
 #include <algorithm>
 #include <chrono>
