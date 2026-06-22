@@ -1,88 +1,125 @@
 #include "TokenBucket.hpp"
-#include <thread>
-#include <iostream>
-#include <sstream>
-#include <unordered_map>
-#include <memory>
 
+#include <algorithm>
+#include <thread>
 
 Bucket::Bucket(double cap, double refill)
-        : tokens(cap), capacity(cap), refillRate(refill), lastRefill(std::chrono::steady_clock::now()), lastAccess(std::chrono::steady_clock::now())
-{}
+    : Bucket(cap, refill, Clock::now()) {}
 
-RateLimiter::RateLimiter(std::chrono::seconds ttl, std::chrono::seconds cleanInterval, double bucket_capacity, double bucket_refill) 
-        : ttl_(ttl), cleanInterval_(cleanInterval), bucket_capacity_(bucket_capacity), bucket_refill_(bucket_refill) {
-        cleanThread_ = std::thread(&RateLimiter::cleanLoop, this);
+Bucket::Bucket(double cap, double refill, Clock::time_point now)
+    : tokens(cap),
+      capacity(cap),
+      refillRate(refill),
+      lastRefill(now),
+      lastAccess(now) {}
+
+RateLimiter::RateLimiter(
+    std::chrono::seconds ttl,
+    std::chrono::seconds cleanInterval,
+    double bucket_capacity,
+    double bucket_refill
+)
+    : ttl_(ttl),
+      cleanInterval_(cleanInterval),
+      bucket_capacity_(bucket_capacity),
+      bucket_refill_(bucket_refill) {
+    cleanThread_ = std::thread(&RateLimiter::cleanLoop, this);
 }
 
 RateLimiter::~RateLimiter() {
-    run_ = false; 
+    run_ = false;
+
     if (cleanThread_.joinable()) {
-        cleanThread_.join(); 
+        cleanThread_.join();
     }
 }
 
-bool RateLimiter::allow (const std::string& userID) {
-    auto now = std::chrono::steady_clock::now();
-    Bucket* bucketPtr = nullptr;
-    {
-        std::lock_guard lock(mapMutex);
-        auto it = buckets_.find(userID);
-        if (it == buckets_.end()) {
-            auto newBucket = std::make_unique<Bucket>(bucket_capacity_, bucket_refill_);
-            it = buckets_.emplace(userID, std::move(newBucket)).first;
-        }
-        bucketPtr = it->second.get();
-        bucketPtr->lastAccess = now;
+bool RateLimiter::allow(const std::string& userID, TimePoint now) {
+    std::lock_guard mapLock(mapMutex);
+
+    auto it = buckets_.find(userID);
+
+    if (it == buckets_.end()) {
+        auto bucket = std::make_unique<Bucket>(
+            bucket_capacity_,
+            bucket_refill_,
+            now
+        );
+
+        it = buckets_.emplace(userID, std::move(bucket)).first;
     }
-    std::lock_guard bucketLock(bucketPtr->mutex);
-    refill(*bucketPtr);
-    bool allowed = (bucketPtr->tokens >= 1.0);
-    if (allowed) {
-        bucketPtr->tokens -= 1.0;
+
+    Bucket& bucket = *it->second;
+
+    std::lock_guard bucketLock(bucket.mutex);
+
+    refill(bucket, now);
+    bucket.lastAccess = now;
+
+    if (bucket.tokens >= 1.0) {
+        bucket.tokens -= 1.0;
+        return true;
     }
-    return allowed;
+
+    return false;
 }
 
-bool RateLimiter::bucketExists(const std::string& userId) const {
-    std::lock_guard lock(mapMutex);
-    return (buckets_.find(userId) != buckets_.end());
-}
+void RateLimiter::refill(Bucket& bucket, TimePoint now) {
+    if (now <= bucket.lastRefill) {
+        return;
+    }
 
-void RateLimiter::refill(Bucket& bucket) {
-    auto now = std::chrono::steady_clock::now();
-    double interval = std::chrono::duration<double>(now - bucket.lastRefill).count();
-    double add_tokens = interval * bucket.refillRate;
+    double interval =
+        std::chrono::duration<double>(now - bucket.lastRefill).count();
 
-    if (bucket.tokens + add_tokens > bucket.capacity) {
-        bucket.tokens = bucket.capacity;
-    } else {
-        bucket.tokens += add_tokens;
-    };
+    bucket.tokens = std::min(
+        bucket.capacity,
+        bucket.tokens + interval * bucket.refillRate
+    );
 
     bucket.lastRefill = now;
+}
+
+std::size_t RateLimiter::cleanup(TimePoint now) {
+    std::lock_guard mapLock(mapMutex);
+
+    std::size_t removed = 0;
+
+    auto it = buckets_.begin();
+
+    while (it != buckets_.end()) {
+        Bucket& bucket = *it->second;
+
+        std::lock_guard bucketLock(bucket.mutex);
+
+        if (now - bucket.lastAccess > ttl_) {
+            it = buckets_.erase(it);
+            ++removed;
+            ++evictionCount_;
+        } else {
+            ++it;
+        }
+    }
+
+    return removed;
 }
 
 void RateLimiter::cleanLoop() {
     while (run_) {
         std::this_thread::sleep_for(cleanInterval_);
-        cleaner();
+
+        if (run_) {
+            cleanup(Clock::now());
+        }
     }
 }
 
-void RateLimiter::cleaner() {
-    auto now = std::chrono::steady_clock::now();
-    std::lock_guard lock(mapMutex); 
-    auto it = buckets_.begin();
-    while (it != buckets_.end()) {
-        auto age = std::chrono::duration_cast<std::chrono::seconds>(now - it->second->lastAccess);
-        if (age > ttl_) {
-            std::unique_lock bucketLock(it->second->mutex, std::try_to_lock);
-            if (bucketLock.owns_lock()) {
-                it = buckets_.erase(it);
-                continue;
-            } 
-        }
-        ++it;
-    }
+std::size_t RateLimiter::activeKeys() const {
+    std::lock_guard lock(mapMutex);
+    return buckets_.size();
+}
+
+bool RateLimiter::bucketExists(const std::string& userID) const {
+    std::lock_guard lock(mapMutex);
+    return buckets_.find(userID) != buckets_.end();
 }

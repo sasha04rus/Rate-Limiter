@@ -1,6 +1,7 @@
 #include "../load_tester/TrafficPattern.hpp"
 #include "../load_tester/LoadTester.hpp"
 
+#include "../include/rate_limiter/IRateLimiter.hpp"
 #include "../include/rate_limiter/TokenBucket.hpp"
 #include "../include/rate_limiter/SlidingWindowLogManager.hpp"
 #include "../include/rate_limiter/LeakingBucket.hpp"
@@ -83,7 +84,7 @@ int main() {
             << result.throughput_rps << ','
             << result.p50_latency_ns << ','
             << result.p99_latency_ns << ','
-            << limiter.keyCount() << ','
+            << limiter.activeKeys() << ','
             << limiter.evictionCount()
             << '\n';
     }
