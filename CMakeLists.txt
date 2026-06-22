@@ -16,10 +16,30 @@ option(BUILD_TESTS        "Собрать юнит-тесты"          ON)
 option(BUILD_BENCHMARKS   "Собрать микробенчмарки"      OFF)
 option(BUILD_LOAD_TESTER  "Собрать нагрузочный тестер"  ON)
 option(ENABLE_TSAN        "Включить ThreadSanitizer"    OFF)
+option(ENABLE_COVERAGE    "Включить покрытие тестами"   OFF)
 
 # -------------------- Common dependencies --------------------
 find_package(Threads REQUIRED)
 include(FetchContent)
+
+# -------------------- Coverage --------------------
+function(enable_coverage_for target_name)
+    if(ENABLE_COVERAGE)
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(${target_name} PRIVATE
+                -O0
+                -g
+                --coverage
+            )
+
+            target_link_options(${target_name} PRIVATE
+                --coverage
+            )
+        else()
+            message(WARNING "Coverage поддерживается только для GCC/Clang")
+        endif()
+    endif()
+endfunction()
 
 # -------------------- Google Test --------------------
 if(BUILD_TESTS)
@@ -79,6 +99,8 @@ if(RATE_LIMITER_SOURCES)
         rate_limiter_headers
         Threads::Threads
     )
+
+    enable_coverage_for(rate_limiter_lib)
 else()
     add_library(rate_limiter_lib INTERFACE)
 
@@ -111,6 +133,8 @@ if(LOAD_PATTERN_SOURCES)
         rate_limiter_lib
         Threads::Threads
     )
+
+    enable_coverage_for(load_patterns)
 endif()
 
 # -------------------- Unit tests --------------------
@@ -135,6 +159,8 @@ if(BUILD_TESTS)
             GTest::gtest_main
             Threads::Threads
         )
+
+        enable_coverage_for(unit_tests)
 
         if(TARGET load_patterns)
             target_link_libraries(unit_tests PRIVATE load_patterns)
