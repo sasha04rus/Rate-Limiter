@@ -3,30 +3,23 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import rcParams
 
-# Настройка стиля
 rcParams['font.size'] = 12
 rcParams['figure.figsize'] = (12, 8)
 rcParams['figure.dpi'] = 100
 
-# ============================================
-# ДАННЫЕ ИЗ БЕНЧМАРКОВ
-# ============================================
 
-# 1. Данные алгоритмов (из benchmark_algorithms)
 algorithms_data = {
     'Algorithm': ['SlidingWindow', 'LeakingBucket', 'TokenBucket'],
     'Time (ns)': [4.33, 4.04, 4.56],
     'Items/sec (M/s)': [231.157, 247.285, 219.252]
 }
 
-# 2. Данные менеджера (один ключ)
 manager_single_data = {
     'Algorithm': ['SlidingWindow', 'LeakingBucket', 'TokenBucket'],
     'Time (ns)': [20.8, 22.1, 21.5],
     'Items/sec (M/s)': [48.138, 45.275, 46.481]
 }
 
-# 3. Данные масштабирования (много ключей)
 scaling_data = {
     'SlidingWindow': {
         'Keys': [1, 10, 100, 1000, 10000],
@@ -51,7 +44,6 @@ scaling_data = {
     }
 }
 
-# 4. Данные паттернов трафика (из benchmark_patterns)
 patterns_data = {
     'Uniform': {
         'Params': ['100/1000', '1000/1000', '1000/10000', '10000/10000'],
@@ -80,13 +72,9 @@ patterns_data = {
     }
 }
 
-# ============================================
-# ГРАФИК 1: Сравнение алгоритмов (чистые vs менеджер)
-# ============================================
 
 fig, axes = plt.subplots(1, 2, figsize=(14, 6))
 
-# График 1a: Время выполнения
 ax1 = axes[0]
 algorithms = algorithms_data['Algorithm']
 x = np.arange(len(algorithms))
@@ -105,7 +93,7 @@ ax1.set_xticklabels(algorithms)
 ax1.legend()
 ax1.grid(True, alpha=0.3)
 
-# Добавляем значения на столбцы
+
 for bar in bars1:
     height = bar.get_height()
     ax1.text(bar.get_x() + bar.get_width()/2., height + 0.2,
@@ -115,7 +103,6 @@ for bar in bars2:
     ax1.text(bar.get_x() + bar.get_width()/2., height + 0.2,
              f'{height:.1f}', ha='center', va='bottom', fontsize=10)
 
-# График 1b: Пропускная способность
 ax2 = axes[1]
 bars3 = ax2.bar(x - width/2, algorithms_data['Items/sec (M/s)'], width,
                 label='Чистый алгоритм', color='#2E86AB', alpha=0.8)
@@ -143,21 +130,16 @@ plt.tight_layout()
 plt.savefig('algorithm_comparison.png', dpi=300, bbox_inches='tight')
 plt.show()
 
-# ============================================
-# ГРАФИК 2: Масштабирование (время vs количество ключей)
-# ============================================
 
 fig, axes = plt.subplots(1, 2, figsize=(14, 6))
 
 colors = {'SlidingWindow': '#2E86AB', 'LeakingBucket': '#A23B72', 'TokenBucket': '#F18F01'}
 
-# График 2a: Время выполнения
 ax1 = axes[0]
 for algo, data in scaling_data.items():
     ax1.plot(data['Keys'], data['Time (ns)'], marker='o', linewidth=2, 
              markersize=8, label=algo, color=colors[algo])
     
-    # Добавляем значения точек
     for i, (key, time) in enumerate(zip(data['Keys'], data['Time (ns)'])):
         ax1.annotate(f'{time:.1f}', (key, time), 
                     textcoords="offset points", xytext=(0,10), ha='center', fontsize=9)
@@ -169,15 +151,12 @@ ax1.set_xscale('log')
 ax1.legend()
 ax1.grid(True, alpha=0.3)
 
-# Добавляем O(n) сложность
 x_vals = np.array([1, 10000])
 for algo, data in scaling_data.items():
-    # Экстраполируем O(n) сложность
     o_n = data['BigO'] * x_vals / 10000
     ax1.plot(x_vals, o_n, '--', alpha=0.5, color=colors[algo], 
             label=f'{algo} O(n)')
 
-# График 2b: Пропускная способность
 ax2 = axes[1]
 for algo, data in scaling_data.items():
     ax2.plot(data['Keys'], data['Items/sec (M/s)'], marker='s', linewidth=2,
@@ -198,18 +177,13 @@ plt.tight_layout()
 plt.savefig('scaling_analysis.png', dpi=300, bbox_inches='tight')
 plt.show()
 
-# ============================================
-# ГРАФИК 3: Сравнение паттернов трафика
-# ============================================
 
 fig, axes = plt.subplots(2, 1, figsize=(14, 12))
 
-# График 3a: Время выполнения паттернов
 ax1 = axes[0]
 patterns = list(patterns_data.keys())
 colors_patterns = ['#2E86AB', '#A23B72', '#F18F01', '#D62828', '#8D6B94']
 
-# Для каждого паттерна берём среднее время
 avg_times = [np.mean(data['Time (ns)']) for data in patterns_data.values()]
 std_times = [np.std(data['Time (ns)']) for data in patterns_data.values()]
 
@@ -221,13 +195,13 @@ ax1.set_ylabel('Время выполнения (ns)', fontsize=12)
 ax1.set_title('Сравнение производительности паттернов трафика\n(среднее время с разбросом)', fontsize=14, fontweight='bold')
 ax1.grid(True, alpha=0.3)
 
-# Добавляем значения
+
 for bar, time in zip(bars, avg_times):
     height = bar.get_height()
     ax1.text(bar.get_x() + bar.get_width()/2., height + 2000,
              f'{time:.0f} ns', ha='center', va='bottom', fontsize=10)
 
-# График 3b: Детальное сравнение всех паттернов
+
 ax2 = axes[1]
 x_positions = []
 labels = []
@@ -240,12 +214,11 @@ for i, (pattern, data) in enumerate(patterns_data.items()):
     all_times.extend(data['Time (ns)'])
     all_speeds.extend(data['Items/sec (M/s)'])
 
-# Создаём цветовую карту для каждого паттерна
 colors_extended = []
 for i, pattern in enumerate(patterns_data.keys()):
     colors_extended.extend([colors_patterns[i]] * len(patterns_data[pattern]['Params']))
 
-# Время выполнения
+
 bars2 = ax2.bar(x_positions, all_times, color=colors_extended, alpha=0.8,
                 edgecolor='black', linewidth=0.5)
 
@@ -260,20 +233,14 @@ plt.tight_layout()
 plt.savefig('pattern_comparison.png', dpi=300, bbox_inches='tight')
 plt.show()
 
-# ============================================
-# ГРАФИК 4: Тепловая карта производительности
-# ============================================
-
 fig, ax = plt.subplots(figsize=(12, 8))
 
-# Создаём матрицу для тепловой карты
 patterns_names = list(patterns_data.keys())
 param_names = ['100/1000', '1000/1000', '1000/10000', '10000/10000']
 data_matrix = np.array([[patterns_data[p]['Time (ns)'][i] for i in range(len(param_names))] 
                         for p in patterns_names])
 
-# Нормализуем для лучшей визуализации
-data_norm = data_matrix / 1000  # Переводим в микросекунды
+data_norm = data_matrix / 1000
 
 im = ax.imshow(data_norm, cmap='YlOrRd', aspect='auto', interpolation='nearest')
 
@@ -283,7 +250,6 @@ ax.set_yticks(np.arange(len(patterns_names)))
 ax.set_xticklabels(param_names, fontsize=10)
 ax.set_yticklabels(patterns_names, fontsize=10)
 
-# Добавляем значения в ячейки
 for i in range(len(patterns_names)):
     for j in range(len(param_names)):
         text = ax.text(j, i, f'{data_norm[i, j]:.1f} µs',
@@ -301,13 +267,8 @@ plt.tight_layout()
 plt.savefig('heatmap_patterns.png', dpi=300, bbox_inches='tight')
 plt.show()
 
-# ============================================
-# ГРАФИК 5: Анализ Big-O и RMS
-# ============================================
-
 fig, ax = plt.subplots(figsize=(10, 6))
 
-# Данные для Big-O и RMS
 algo_names = list(scaling_data.keys())
 big_o_values = [scaling_data[algo]['BigO'] for algo in algo_names]
 rms_values = [scaling_data[algo]['RMS'] for algo in algo_names]
@@ -328,7 +289,7 @@ ax.set_xticklabels(algo_names)
 ax.legend()
 ax.grid(True, alpha=0.3)
 
-# Добавляем значения на столбцы
+
 for bar in bars1:
     height = bar.get_height()
     ax.text(bar.get_x() + bar.get_width()/2., height + 0.5,
@@ -342,9 +303,6 @@ plt.tight_layout()
 plt.savefig('big_o_analysis.png', dpi=300, bbox_inches='tight')
 plt.show()
 
-# ============================================
-# ГРАФИК 6: Overhead менеджера
-# ============================================
 
 fig, ax = plt.subplots(figsize=(10, 6))
 
@@ -368,7 +326,7 @@ ax.set_xticklabels(algorithms)
 ax.legend()
 ax.grid(True, alpha=0.3)
 
-# Добавляем значения
+
 for bar in bars1:
     height = bar.get_height()
     ax.text(bar.get_x() + bar.get_width()/2., height + 0.5,
@@ -382,9 +340,6 @@ plt.tight_layout()
 plt.savefig('manager_overhead.png', dpi=300, bbox_inches='tight')
 plt.show()
 
-# ============================================
-# ВЫВОД СТАТИСТИКИ
-# ============================================
 
 print("=" * 60)
 print("СТАТИСТИЧЕСКИЙ АНАЛИЗ БЕНЧМАРКОВ")
