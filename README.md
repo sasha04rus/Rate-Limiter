@@ -1,7 +1,7 @@
 # RATE LIMITER
 
-[**Отчёт (PDF)**](./report/report.pdf)
-[**Презентация (PDF)**](./report/presentation.pdf)
+[**Отчёт (PDF)**](./docs/report.pdf)
+[**Презентация (PDF)**](./docs/presentation.pdf)
 
 ## Команда №8
 ## Силевич Андрей
